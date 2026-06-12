@@ -20,12 +20,12 @@ bl_info = {
     "name": "Hierarchy To Collections",
     "author": "Yannick 'BoUBoU' Castaing",
     "description": "Allows you to switch between collection and empties hierarchy",
-    "location": "View3D > UI > Workflow panel",
+    "location": "Outliner > HEADER ",
     "doc_url": "",
     "warning": "",
     "category": "Workflow",
     "blender": (2,90,0),
-    "version": (1,2,93)
+    "version": (1,3,3)
 }
 
 # get addon name and version to use them automaticaly in the addon
@@ -43,12 +43,12 @@ separator = "-" * 20
 
 ### create functions ###
 def createColl(collName,clean,link): # variable, remove collection ?, link collection ?
-    if clean == True:
+    if clean:
         if collName in bpy.data.collections.keys(): # clean to avoid doubles
             bpy.data.collections.remove(bpy.data.collections[collName])
     if collName not in bpy.data.collections.keys():
         bpy.data.collections.new(collName)
-    if link == True:
+    if link:
         if collName not in bpy.context.scene.collection.children.keys():
             bpy.context.scene.collection.children.link(bpy.data.collections[collName])
 
@@ -75,40 +75,36 @@ class HIERTOCOL_properties (bpy.types.PropertyGroup):
     
 
 ### create panels ###
+# Fonction qui dessine le bouton dans le header de l'Outliner
+def draw_outliner_button(self, context):
+    if context.space_data.display_mode == 'VIEW_LAYER':
+        layout = self.layout
+        layout.popover(panel="OUTLINER_PT_hiertocolpanelall", text="", icon="NETWORK_DRIVE")
+
+
 # create panel UPPER_PT_lower
-class OBJECT_PT_hiertocolpanelall(bpy.types.Panel):
+class OUTLINER_PT_hiertocolpanelall(bpy.types.Panel):
     bl_label = f"{Addon_Name} - {Addon_Version}"
-    bl_idname = "OBJECT_PT_hiertocolpanelall"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
+    bl_idname = "OUTLINER_PT_hiertocolpanelall"
+    bl_space_type = "OUTLINER"
+    bl_region_type = "HEADER"
     bl_category = "Workflow"
     
     def draw(self, context):
         hiertocol_props = context.scene.hiertocol_props
-        col = self.layout.column()
-        row = col.row()
+        layout = self.layout
+        box = layout.box()
+        row = box.row()
         row.operator("hiertocol.emptiestocollections",text="Empties to Collections",emboss=True,depress=False,icon="COLLECTION_NEW")
-        row = col.row()
-        col.operator("hiertocol.collectionstoempties",text="Collections to Empties",emboss=True,depress=False,icon="EMPTY_AXIS")
-        
-
-class OBJECT_PT_hiertocolpanelAdvanced(bpy.types.Panel):
-    bl_label = f"Advanced"
-    bl_idname = "OBJECT_PT_hiertocolpanelAdvanced"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "UI"
-    bl_category = "Tool"
-    bl_parent_id = "OBJECT_PT_hiertocolpanelall"
-
-    def draw(self, context):
-        col = self.layout.column()
-        hiertocol_props = context.scene.hiertocol_props
-        row = col.row()
-        row.prop(hiertocol_props, "hiertocol_transformobjecttype")
-        row = col.row()
+        row.operator("hiertocol.collectionstoempties",text="Collections to Empties",emboss=True,depress=False,icon="EMPTY_AXIS")
+        adbox = layout.box()
+        row = adbox.row()
+        row.label(text="Apply Transformations")
+        row.prop(hiertocol_props, "hiertocol_transformobjecttype", text = "")
+        row = adbox.row()
         row.prop(hiertocol_props, "hiertocol_resetscale")
         row.prop(hiertocol_props, "hiertocol_resetrotation")
-        row.prop(hiertocol_props, "hiertocol_resetlocation")
+        row.prop(hiertocol_props, "hiertocol_resetlocation")    
 
 ### create operators ###        
 # create operator UPPER_OT_lower and idname = upper.lower         
@@ -184,49 +180,53 @@ class OBJECT_OT_hiertocolemptiestocollections(bpy.types.Operator):
                 coll = bpy.data.collections[obj.name]
                 coll.color_tag = color_tag
                 coll_from_empty[obj] = coll
-        ## create root collection, and storage collection
+        ## create root collection, and store collection
+        root_coll_name = ""
         for obj, coll in coll_from_empty.items():
             parent = coll_from_empty.get(obj.parent)
             if parent == None:
                 root_coll_name = obj.name
-        createColl(root_coll_name,False,True) #create root coll and link coll
-        root_coll = bpy.data.collections[root_coll_name]
-        ## create a random color for hierarchy or take the random color existing
-        if root_coll.color_tag == "NONE":
-            root_coll.color_tag = color_tag
-        else:
-            color_tag = root_coll.color_tag 
-            
-        ## build collection hierarchy
-        for obj, coll in coll_from_empty.items():
-            parent = coll_from_empty.get(obj.parent)    
-            if parent:
-                parent.children.link (coll)
 
-        ## create empties collection to select original hierarchy
-        empties_storage_coll_name = f"{root_coll.name}-EmptiesHierarchy" #storage
-        createColl(empties_storage_coll_name,True,True) #create coll
-        empties_storage_coll = bpy.data.collections[empties_storage_coll_name]
-        empties_storage_coll.color_tag = color_tag
-
-        ## unlink all selected objects in scene
-        for obj in selected_obj:
-            if obj in bpy.context.scene.collection.objects.values():
-                bpy.context.scene.collection.objects.unlink(bpy.data.objects[obj.name])
-        for obj in bpy.context.selected_objects:
-            for col in bpy.context.scene.objects[obj.name].users_collection:
-                bpy.data.collections[col.name].objects.unlink(bpy.data.objects[obj.name])
-
-        ## put objects in the right collection     
-        for obj in selected_obj:
-            if obj.type != 'EMPTY':
-                if obj.parent != None:
-                    coll_parent = coll_from_empty.get(obj.parent)
-                    coll_parent.objects.link(obj)
-                else:
-                    root_coll.objects.link(obj)
+                
+        if root_coll_name != "":
+            createColl(root_coll_name,False,True) #create root coll and link coll
+            root_coll = bpy.data.collections[root_coll_name]
+            ## create a random color for hierarchy or take the random color existing
+            if root_coll.color_tag == "NONE":
+                root_coll.color_tag = color_tag
             else:
-                empties_storage_coll.objects.link(obj)
+                color_tag = root_coll.color_tag 
+            
+            ## build collection hierarchy
+            for obj, coll in coll_from_empty.items():
+                parent = coll_from_empty.get(obj.parent)    
+                if parent:
+                    parent.children.link (coll)
+
+            ## create empties collection to select original hierarchy
+            empties_storage_coll_name = f"{root_coll.name}-EmptiesHierarchy" #storage
+            createColl(empties_storage_coll_name,True,True) #create coll
+            empties_storage_coll = bpy.data.collections[empties_storage_coll_name]
+            empties_storage_coll.color_tag = color_tag
+
+            ## unlink all selected objects in scene
+            for obj in selected_obj:
+                if obj in bpy.context.scene.collection.objects.values():
+                    bpy.context.scene.collection.objects.unlink(bpy.data.objects[obj.name])
+            for obj in bpy.context.selected_objects:
+                for col in bpy.context.scene.objects[obj.name].users_collection:
+                    bpy.data.collections[col.name].objects.unlink(bpy.data.objects[obj.name])
+
+            ## put objects in the right collection     
+            for obj in selected_obj:
+                if obj.type != 'EMPTY':
+                    if obj.parent != None:
+                        coll_parent = coll_from_empty.get(obj.parent)
+                        coll_parent.objects.link(obj)
+                    else:
+                        root_coll.objects.link(obj)
+                else:
+                    empties_storage_coll.objects.link(obj)
         
         print(f"{Addon_Name} done on : {str(selected_obj)} \n")
         print(f"\n {separator} {Addon_Name} (empty to collections) Finished {separator} \n")
@@ -397,8 +397,7 @@ class OBJECT_OT_hiertocolcollectionstoempties(bpy.types.Operator):
 # list all classes
 classes = (
     HIERTOCOL_properties,
-    OBJECT_PT_hiertocolpanelall,
-    OBJECT_PT_hiertocolpanelAdvanced,
+    OUTLINER_PT_hiertocolpanelall,
     OBJECT_OT_hiertocolemptiestocollections,
     OBJECT_OT_hiertocolcollectionstoempties,
     )
@@ -408,13 +407,17 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.hiertocol_props = bpy.props.PointerProperty (type = HIERTOCOL_properties)
+    bpy.types.OUTLINER_HT_header.append(draw_outliner_button)
 
 #unregister classes 
 def unregister():    
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
     del bpy.types.Scene.hiertocol_props
+    bpy.types.OUTLINER_HT_header.remove(draw_outliner_button)
         
+if __name__ == "__main__":
+    register()
 
 ## todo
 # select root element > select hierarchy
